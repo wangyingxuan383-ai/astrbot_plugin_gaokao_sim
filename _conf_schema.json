@@ -1,0 +1,26 @@
+{
+  "enable_llm_features": {
+    "description": "是否启用LLM功能",
+    "type": "bool",
+    "hint": "启用后将使用AI生成测验题目、动态剧情和志愿顾问。会消耗LLM Token。",
+    "default": true
+  },
+  "daily_energy": {
+    "description": "每日体力上限",
+    "type": "int",
+    "hint": "玩家每天可用的体力点数，学习/休息消耗1点",
+    "default": 5
+  },
+  "quiz_trigger_rate": {
+    "description": "随堂测验触发概率",
+    "type": "float",
+    "hint": "学习时触发AI测验的概率，0.0-1.0之间",
+    "default": 0.3
+  },
+  "enable_image_generation": {
+    "description": "是否启用图片生成",
+    "type": "bool",
+    "hint": "启用后将在高考结算时生成录取通知书图片和成绩折线图",
+    "default": true
+  }
+}

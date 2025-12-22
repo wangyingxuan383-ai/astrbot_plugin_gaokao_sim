@@ -1,0 +1,6 @@
+name: astrbot_plugin_gaokao_sim
+desc: 高考模拟学习插件 v2.1，引入AI互动、压力系统与可视化报告
+version: v2.1.0
+author: jinyao
+repo: https://github.com/wangyingxuan383-ai/astrbot_plugin_gaokao_sim
+display_name: 高考模拟器
