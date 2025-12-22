@@ -5,6 +5,19 @@
     "hint": "启用后将使用AI生成测验题目、动态剧情和志愿顾问。会消耗LLM Token。",
     "default": true
   },
+  "llm_provider_id": {
+    "description": "LLM 提供商 ID",
+    "type": "string",
+    "hint": "留空则使用当前会话启用的提供商",
+    "_special": "select_provider",
+    "default": ""
+  },
+  "llm_model_name": {
+    "description": "LLM 模型名称",
+    "type": "string",
+    "hint": "留空则使用提供商默认模型",
+    "default": ""
+  },
   "daily_energy": {
     "description": "每日体力上限",
     "type": "int",
@@ -16,6 +29,12 @@
     "type": "float",
     "hint": "学习时触发AI测验的概率，0.0-1.0之间",
     "default": 0.3
+  },
+  "dynamic_event_rate": {
+    "description": "动态剧情触发概率",
+    "type": "float",
+    "hint": "学习时触发AI剧情的概率，0.0-1.0之间",
+    "default": 0.2
   },
   "enable_image_generation": {
     "description": "是否启用图片生成",

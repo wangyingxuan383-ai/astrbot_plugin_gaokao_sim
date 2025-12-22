@@ -67,8 +67,6 @@ FAIL_EVENTS = [
     "熬夜太多状态不佳"
 ]
 
-DYNAMIC_EVENT_RATE = 0.3
-
 # 简约护眼主题色
 THEME = {
     "bg": (238, 245, 232),
@@ -147,6 +145,46 @@ class GaokaoGame:
         self.quiz_subject = None
         self.pending_quiz_analysis = None
         self.history_scores_record = [] # 记录每月的总分，用于绘图
+        self.improvement_multiplier = 1.0
+
+    def generate_initial_scores(self, subject_config: Dict) -> None:
+        subject_max = []
+        for subject in subject_config["subjects"]:
+            max_score = 150 if subject in ["语文", "数学", "英语"] else 100
+            subject_max.append((subject, max_score))
+
+        target_total = int(random.gauss(300, 70))
+        target_total = int(clamp(target_total, 120, 600))
+
+        raw = {}
+        total_raw = 0.0
+        for subject, max_score in subject_max:
+            factor = random.uniform(0.6, 1.4)
+            value = max_score * factor
+            raw[subject] = value
+            total_raw += value
+
+        self.subjects = {}
+        self.initial_scores = {}
+        for subject, max_score in subject_max:
+            score = int(raw[subject] / total_raw * target_total)
+            score = int(clamp(score, 0, max_score))
+            self.subjects[subject] = score
+            self.initial_scores[subject] = score
+
+        delta = target_total - sum(self.subjects.values())
+        attempts = 0
+        subject_list = [s for s, _ in subject_max]
+        while delta != 0 and attempts < 2000:
+            subject = random.choice(subject_list)
+            max_score = 150 if subject in ["语文", "数学", "英语"] else 100
+            if delta > 0 and self.subjects[subject] < max_score:
+                self.subjects[subject] += 1
+                delta -= 1
+            elif delta < 0 and self.subjects[subject] > 0:
+                self.subjects[subject] -= 1
+                delta += 1
+            attempts += 1
 
     def initialize_game(self, group_id: str = "", config: dict = None):
         """初始化游戏数据"""
@@ -154,17 +192,7 @@ class GaokaoGame:
         subject_config = SUBJECTS_CONFIG[self.subject_type]
         self.group_id = group_id
         
-        self.subjects = {}
-        self.initial_scores = {}
-        
-        for subject in subject_config["subjects"]:
-            # 基础分波动加大
-            if subject in ["语文", "数学", "英语"]:
-                score = random.randint(60, 110)
-            else:
-                score = random.randint(40, 70)
-            self.subjects[subject] = score
-            self.initial_scores[subject] = score
+        self.generate_initial_scores(subject_config)
         
         # 记录初始成绩
         self.history_scores_record = [sum(self.subjects.values())]
@@ -180,6 +208,13 @@ class GaokaoGame:
         self.dislike_subject = random.choice(all_subjects) if all_subjects else self.favorite_subject
         
         self.personality = random.choice(list(PERSONALITY_TYPES.keys()))
+        improvement_roll = random.random()
+        if improvement_roll < 0.1:
+            self.improvement_multiplier = random.uniform(1.3, 1.6)
+        elif improvement_roll < 0.4:
+            self.improvement_multiplier = random.uniform(1.1, 1.25)
+        else:
+            self.improvement_multiplier = random.uniform(0.85, 1.05)
         
         # 应用性格对初始属性的影响
         self.max_energy = int(config.get("daily_energy", 5)) if config else 5
@@ -216,19 +251,23 @@ class GaokaoGame:
     def get_welcome_message(self) -> str:
         total_score = sum(self.subjects.values())
         personality_info = PERSONALITY_TYPES[self.personality]
+        stress_cap = 100 + personality_info.get("stress_max_bonus", 0)
         
         msg = [
-            "🎓 欢迎来到高考模拟学习 v2.0！",
+            "🎓 欢迎来到高考模拟学习 v2.1！",
             f"📚 你的学科类型: {self.subject_type}",
             f"💫 你的性格: {self.personality} ({personality_info['desc']})",
             f"❤️ 喜欢的科目: {self.favorite_subject} (+20%效果)",
-            f"\n📊 初始总分: {total_score}分",
-            f"⚡ 今日体力: {self.energy}/{self.max_energy}",
-            f"😫 当前压力: {self.stress}/100",
-            "\n💡 新功能提示：",
-            "1. 每天自动恢复体力，学习消耗体力，压力过高会影响发挥",
-            "2. 使用 '/高考休息' 可以恢复状态",
-            "3. 学习过程中可能会触发 AI 老师的随堂测验哦！"
+            f"\n📊 初始总分: {total_score}分 / 750分",
+            "📈 各科成绩:",
+            *[f"  {sub}: {score}分" for sub, score in self.subjects.items()],
+            f"\n⚡ 今日体力: {self.energy}/{self.max_energy}",
+            f"😫 当前压力: {self.stress}/{stress_cap}",
+            "\n📌 核心规则：",
+            "1. 时间线: 9月到次年6月，共10个月",
+            "2. 月推进: 每累计行动达到当前体力上限推进一个月",
+            "3. 压力过高会显著降低学习成功率",
+            "4. 学习可能触发 AI 测验与动态剧情"
         ]
         return "\n".join(msg)
 
@@ -255,7 +294,8 @@ class GaokaoGame:
             'history_scores_record': self.history_scores_record,
             'pending_quiz_answer': self.pending_quiz_answer,
             'quiz_subject': self.quiz_subject,
-            'pending_quiz_analysis': self.pending_quiz_analysis
+            'pending_quiz_analysis': self.pending_quiz_analysis,
+            'improvement_multiplier': self.improvement_multiplier
         }
 
     @classmethod
@@ -283,6 +323,7 @@ class GaokaoGame:
         game.pending_quiz_answer = data.get('pending_quiz_answer')
         game.quiz_subject = data.get('quiz_subject')
         game.pending_quiz_analysis = data.get('pending_quiz_analysis')
+        game.improvement_multiplier = float(data.get('improvement_multiplier', 1.0))
         if game.energy > game.max_energy:
             game.energy = game.max_energy
         stress_cap = 100 + PERSONALITY_TYPES.get(game.personality, {}).get("stress_max_bonus", 0)
@@ -381,6 +422,27 @@ class GaokaoPlugin(Star):
             "analysis": analysis
         }
 
+    def get_llm_provider(self, event: AstrMessageEvent):
+        provider_id = str(self.config.get("llm_provider_id", "")).strip()
+        umo = getattr(event, "unified_msg_origin", None)
+        if provider_id:
+            return self.context.get_provider_by_id(provider_id=provider_id)
+        if umo:
+            return self.context.get_using_provider(umo=umo)
+        return None
+
+    async def llm_chat(self, event: AstrMessageEvent, prompt: str) -> Optional[str]:
+        provider = self.get_llm_provider(event)
+        if not provider:
+            return None
+        model = str(self.config.get("llm_model_name", "")).strip() or None
+        try:
+            resp = await provider.text_chat(prompt=prompt, model=model)
+            return resp.completion_text
+        except Exception as exc:
+            self.logger.error(f"LLM 调用失败: {exc}")
+            return None
+
     def advance_month_progress(self, game: GaokaoGame) -> Tuple[Optional[str], bool]:
         progress_cap = max(1, game.max_energy)
         game.month_progress += 1
@@ -399,13 +461,9 @@ class GaokaoPlugin(Star):
     async def maybe_generate_dynamic_event(self, event: AstrMessageEvent, subject: str, is_success: bool) -> Optional[str]:
         if not self.config.get("enable_llm_features", True):
             return None
-        if random.random() >= DYNAMIC_EVENT_RATE:
-            return None
-        umo = getattr(event, "unified_msg_origin", None)
-        if not umo:
-            return None
-        provider_id = await self.context.get_current_chat_provider_id(umo=umo)
-        if not provider_id:
+        rate = float(self.config.get("dynamic_event_rate", 0.2))
+        rate = clamp(rate, 0.0, 1.0)
+        if random.random() >= rate:
             return None
         outcome = "成功" if is_success else "失利"
         prompt = f"""
@@ -416,8 +474,8 @@ class GaokaoPlugin(Star):
 不要包含多余文本。
 """
         try:
-            resp = await self.context.llm_generate(chat_provider_id=provider_id, prompt=prompt)
-            data = self.extract_json_payload(resp.completion_text)
+            text = await self.llm_chat(event, prompt)
+            data = self.extract_json_payload(text or "")
             if data and "event" in data:
                 return str(data["event"]).strip()
         except Exception as exc:
@@ -565,19 +623,20 @@ class GaokaoPlugin(Star):
 
         # 消耗及结算
         game.energy -= 1
-        stress_inc = random.randint(5, 10)
+        stress_inc = random.randint(4, 9)
         
         # 压力过高惩罚
-        success_rate = 0.6
+        success_rate = 0.55
         if game.stress > 80:
-            success_rate = 0.3
+            success_rate = 0.25
             yield event.plain_result("⚠️ 压力过高，你感到头晕眼花，学习效率极低！建议先休息！")
         elif game.stress > 60:
-            success_rate = 0.45
+            success_rate = 0.4
             
         # 性格影响
         p_info = PERSONALITY_TYPES.get(game.personality, {})
         stress_cap = 100 + p_info.get("stress_max_bonus", 0)
+        success_rate += p_info.get("success_bonus", 0) * 0.5
         success_rate -= p_info.get("fail_chance", 0)
         success_rate = clamp(success_rate, 0.05, 0.95)
         stress_inc = int(stress_inc * (1 + p_info.get("stress_gain", 0) - p_info.get("stress_resist", 0)))
@@ -588,15 +647,18 @@ class GaokaoPlugin(Star):
         event_desc = ""
         
         if is_success:
-            score_change = random.randint(5, 15)
+            score_change = random.randint(2, 8)
+            score_change = int(score_change * game.improvement_multiplier)
             score_change = int(score_change * (1 + p_info.get("success_bonus", 0)))
             if subject == game.favorite_subject:
                 score_change = int(score_change * 1.2)
             game.stress = clamp(game.stress + stress_inc, 0, stress_cap)
             event_desc = "学习不仅高效，还掌握了新知识点！"
         else:
-            score_change = random.randint(-5, 2) # 有小概率增加一点点
-            if "fail_penalty_reduce" in p_info:
+            score_change = random.randint(-6, 2) # 有小概率增加一点点
+            if score_change > 0:
+                score_change = int(score_change * game.improvement_multiplier)
+            elif "fail_penalty_reduce" in p_info:
                 score_change = int(score_change * (1 - p_info.get("fail_penalty_reduce", 0)))
             game.stress = clamp(game.stress + stress_inc + 5, 0, stress_cap)
             event_desc = "走神了，看书看串行了..."
@@ -630,6 +692,9 @@ class GaokaoPlugin(Star):
         progress_msg, finished = self.advance_month_progress(game)
         if progress_msg:
             result_msg.append(progress_msg)
+        current_total = sum(game.subjects.values())
+        result_msg.append(f"📊 当前总分: {current_total}分")
+        result_msg.append(f"⏳ 月进度: {game.month_progress}/{max(1, game.max_energy)}")
 
         self.save_data()
         yield event.plain_result("\n".join(result_msg))
@@ -646,13 +711,6 @@ class GaokaoPlugin(Star):
 
     async def trigger_ai_quiz(self, event: AstrMessageEvent, game: GaokaoGame, subject: str) -> Optional[str]:
         """触发 AI 测验"""
-        umo = getattr(event, "unified_msg_origin", None)
-        if not umo:
-            return None
-        provider_id = await self.context.get_current_chat_provider_id(umo=umo)
-        if not provider_id:
-            return None
-
         prompt = f"""
 请出一道高中{subject}科目的单项选择题。
 严格输出 JSON，不要包含多余文本：
@@ -664,8 +722,8 @@ class GaokaoPlugin(Star):
 }}
 """
         try:
-            resp = await self.context.llm_generate(chat_provider_id=provider_id, prompt=prompt)
-            data = self.extract_json_payload(resp.completion_text)
+            text = await self.llm_chat(event, prompt)
+            data = self.extract_json_payload(text or "")
             data = self.normalize_quiz_data(data, subject) if data else None
             if not data:
                 data = FALLBACK_QUIZ_BANK.get(subject) or FALLBACK_QUIZ_BANK["通用"]
@@ -769,23 +827,20 @@ class GaokaoPlugin(Star):
                 
         # 3. LLM 志愿建议
         if self.config.get("enable_llm_features", True):
-            umo = getattr(event, "unified_msg_origin", None)
-            if not umo:
-                provider_id = None
+            scores_str = ", ".join([f"{k}:{v}" for k, v in game.subjects.items()])
+            prompt = f"""
+            考生高考总分{total_score}，科目成绩：{scores_str}。
+            性格：{game.personality}。
+            如果不理想，请给予安慰。
+            如果成绩不错，请根据其优势科目推荐2个适合的专业方向，并给出简短的职业规划建议。
+            200字以内。
+            """
+            yield event.plain_result("🤖 正在咨询 AI 志愿填报顾问...")
+            text = await self.llm_chat(event, prompt)
+            if text:
+                yield event.plain_result(f"💡 志愿顾问建议：\n{text}")
             else:
-                provider_id = await self.context.get_current_chat_provider_id(umo=umo)
-            if provider_id:
-                scores_str = ", ".join([f"{k}:{v}" for k,v in game.subjects.items()])
-                prompt = f"""
-                考生高考总分{total_score}，科目成绩：{scores_str}。
-                性格：{game.personality}。
-                如果不理想，请给予安慰。
-                如果成绩不错，请根据其优势科目推荐2个适合的专业方向，并给出简短的职业规划建议。
-                200字以内。
-                """
-                yield event.plain_result("🤖 正在咨询 AI 志愿填报顾问...")
-                resp = await self.context.llm_generate(chat_provider_id=provider_id, prompt=prompt)
-                yield event.plain_result(f"💡 志愿顾问建议：\n{resp.completion_text}")
+                yield event.plain_result("💡 志愿顾问暂时不可用，请稍后再试。")
 
         # 重置游戏状态
         game.started = False
