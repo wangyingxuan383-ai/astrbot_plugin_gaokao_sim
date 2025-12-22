@@ -289,7 +289,7 @@ class GaokaoGame:
         stress_cap = 100 + personality_info.get("stress_max_bonus", 0)
         
         msg = [
-            "🎓 欢迎来到高考模拟学习 v2.1.4！",
+            "🎓 欢迎来到高考模拟学习 v2.1.5！",
             f"📚 你的学科类型: {self.subject_type}",
             f"💫 你的性格: {self.personality} ({personality_info['desc']})",
             f"❤️ 喜欢的科目: {self.favorite_subject} (+20%效果)",
@@ -369,7 +369,7 @@ class GaokaoGame:
         game.stress = clamp(game.stress, 0, stress_cap)
         return game
 
-@register("astrbot_plugin_gaokao_sim", "jinyao", "高考模拟学习插件", "2.1.4", "https://github.com/wangyingxuan383-ai/astrbot_plugin_gaokao_sim")
+@register("astrbot_plugin_gaokao_sim", "jinyao", "高考模拟学习插件", "2.1.5", "https://github.com/wangyingxuan383-ai/astrbot_plugin_gaokao_sim")
 class GaokaoPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -769,7 +769,7 @@ class GaokaoPlugin(Star):
                 yield ret
 
     @filter.command("高考学习")
-    async def study(self, event: AstrMessageEvent, subject: Optional[str] = None, *args, **kwargs):
+    async def study(self, event: AstrMessageEvent, subject: str = ""):
         user_id = event.get_sender_id()
         game = self.get_user_game(user_id)
         
@@ -792,6 +792,7 @@ class GaokaoPlugin(Star):
                 yield event.plain_result(f"❌ 请指定科目！\n可用: {', '.join(game.subjects.keys())}")
                 return
             subject = parts[1]
+        subject = subject.strip()
         
         if subject not in game.subjects:
             yield event.plain_result("❌ 科目不存在")
