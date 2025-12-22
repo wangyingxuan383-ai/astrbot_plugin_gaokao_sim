@@ -79,31 +79,62 @@ THEME = {
 }
 
 FALLBACK_QUIZ_BANK = {
-    "语文": {
-        "question": "下列词语中有错别字的一项是：",
-        "options": ["A. 万籁俱寂", "B. 迫不及待", "C. 应接不瑕", "D. 全神贯注"],
-        "answer": "C",
-        "analysis": "C 项应为“应接不暇”。"
-    },
-    "数学": {
-        "question": "若 a=2，则 2a+3 的值为：",
-        "options": ["A. 5", "B. 6", "C. 7", "D. 8"],
-        "answer": "C",
-        "analysis": "代入 a=2，2a+3=7。"
-    },
-    "英语": {
-        "question": "Choose the correct word: I ____ to school every day.",
-        "options": ["A. go", "B. goes", "C. going", "D. gone"],
-        "answer": "A",
-        "analysis": "主语 I 后用动词原形 go。"
-    },
-    "通用": {
-        "question": "下列哪一项属于自然科学？",
-        "options": ["A. 物理学", "B. 历史学", "C. 文学", "D. 哲学"],
-        "answer": "A",
-        "analysis": "物理学是自然科学。"
-    }
+    "语文": [
+        {
+            "question": "下列词语中有错别字的一项是：",
+            "options": ["A. 万籁俱寂", "B. 迫不及待", "C. 应接不瑕", "D. 全神贯注"],
+            "answer": "C",
+            "analysis": "C 项应为“应接不暇”。"
+        },
+        {
+            "question": "下列成语使用正确的一项是：",
+            "options": ["A. 迫不急待", "B. 一诺千金", "C. 望其项背", "D. 事倍功半"],
+            "answer": "B",
+            "analysis": "B 项用法正确，其它含错别字或用法不当。"
+        }
+    ],
+    "数学": [
+        {
+            "question": "若 a=2，则 2a+3 的值为：",
+            "options": ["A. 5", "B. 6", "C. 7", "D. 8"],
+            "answer": "C",
+            "analysis": "代入 a=2，2a+3=7。"
+        },
+        {
+            "question": "函数 f(x)=2x 在 x=3 处的值为：",
+            "options": ["A. 3", "B. 5", "C. 6", "D. 7"],
+            "answer": "C",
+            "analysis": "f(3)=2×3=6。"
+        }
+    ],
+    "英语": [
+        {
+            "question": "Choose the correct word: I ____ to school every day.",
+            "options": ["A. go", "B. goes", "C. going", "D. gone"],
+            "answer": "A",
+            "analysis": "主语 I 后用动词原形 go。"
+        },
+        {
+            "question": "Choose the correct word: She ____ reading at night.",
+            "options": ["A. like", "B. likes", "C. liked", "D. liking"],
+            "answer": "B",
+            "analysis": "主语 She 后用第三人称单数 likes。"
+        }
+    ],
+    "通用": [
+        {
+            "question": "下列哪一项属于自然科学？",
+            "options": ["A. 物理学", "B. 历史学", "C. 文学", "D. 哲学"],
+            "answer": "A",
+            "analysis": "物理学是自然科学。"
+        }
+    ]
 }
+
+FORBIDDEN_QUIZ_CHARS = [
+    "$", "\\", "{", "}", "^", "_",
+    "√", "π", "∠", "°", "∥", "→", "←", "∈", "≤", "≥", "±", "×", "÷"
+]
 
 def clamp(value: float, low: float, high: float) -> float:
     return max(low, min(value, high))
@@ -142,6 +173,7 @@ class GaokaoGame:
         self.max_energy = 5 # 体力上限
         self.last_update_date = None # 上次操作日期 (用于每日重置体力)
         self.month_progress = 0 # 月份推进的行动计数
+        self.month_progress_target = 1
         
         self.pending_quiz_answer = None # 等待回答的测验答案 (A/B/C/D)
         self.quiz_subject = None
@@ -230,6 +262,7 @@ class GaokaoGame:
         self.stress = 0
         self.current_month = 0
         self.month_progress = 0
+        self.month_progress_target = random.choice([1, 2])
         self.started = True
         self.last_update_date = datetime.now().date().isoformat()
         self.is_debug_mode = False
@@ -256,7 +289,7 @@ class GaokaoGame:
         stress_cap = 100 + personality_info.get("stress_max_bonus", 0)
         
         msg = [
-            "🎓 欢迎来到高考模拟学习 v2.1！",
+            "🎓 欢迎来到高考模拟学习 v2.1.2！",
             f"📚 你的学科类型: {self.subject_type}",
             f"💫 你的性格: {self.personality} ({personality_info['desc']})",
             f"❤️ 喜欢的科目: {self.favorite_subject} (+20%效果)",
@@ -267,7 +300,7 @@ class GaokaoGame:
             f"😫 当前压力: {self.stress}/{stress_cap}",
             "\n📌 核心规则：",
             "1. 时间线: 9月到次年6月，共10个月",
-            "2. 月推进: 每累计行动达到当前体力上限推进一个月",
+            "2. 月推进: 每月行动需求为1-2次（随机）",
             "3. 压力过高会显著降低学习成功率",
             "4. 学习可能触发 AI 测验与动态剧情"
         ]
@@ -293,6 +326,7 @@ class GaokaoGame:
             'max_energy': self.max_energy,
             'last_update_date': self.last_update_date,
             'month_progress': self.month_progress,
+            'month_progress_target': self.month_progress_target,
             'history_scores_record': self.history_scores_record,
             'pending_quiz_answer': self.pending_quiz_answer,
             'quiz_subject': self.quiz_subject,
@@ -321,6 +355,9 @@ class GaokaoGame:
         game.max_energy = max(1, int(data.get('max_energy', 5)))
         game.last_update_date = data.get('last_update_date', datetime.now().date().isoformat())
         game.month_progress = data.get('month_progress', 0)
+        game.month_progress_target = int(data.get('month_progress_target', 1))
+        if game.month_progress_target not in [1, 2]:
+            game.month_progress_target = 1
         game.history_scores_record = data.get('history_scores_record', [])
         game.pending_quiz_answer = data.get('pending_quiz_answer')
         game.quiz_subject = data.get('quiz_subject')
@@ -332,7 +369,7 @@ class GaokaoGame:
         game.stress = clamp(game.stress, 0, stress_cap)
         return game
 
-@register("astrbot_plugin_gaokao_sim", "jinyao", "高考模拟学习插件", "2.1.1", "https://github.com/wangyingxuan383-ai/astrbot_plugin_gaokao_sim")
+@register("astrbot_plugin_gaokao_sim", "jinyao", "高考模拟学习插件", "2.1.2", "https://github.com/wangyingxuan383-ai/astrbot_plugin_gaokao_sim")
 class GaokaoPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -424,6 +461,45 @@ class GaokaoPlugin(Star):
             "analysis": analysis
         }
 
+    def get_fallback_quiz(self, subject: str) -> Dict:
+        bank = FALLBACK_QUIZ_BANK.get(subject) or FALLBACK_QUIZ_BANK["通用"]
+        return random.choice(bank)
+
+    def has_forbidden_quiz_chars(self, text: str) -> bool:
+        if not text:
+            return False
+        return any(ch in text for ch in FORBIDDEN_QUIZ_CHARS)
+
+    def randomize_quiz_options(self, data: Dict) -> Dict:
+        labels = ["A", "B", "C", "D"]
+        options = data.get("options", [])
+        if len(options) != 4:
+            return data
+        cleaned = []
+        for opt in options:
+            item = str(opt).strip()
+            if len(item) >= 2 and item[0] in labels and item[1] in [".", "、"]:
+                item = item[2:].strip()
+            cleaned.append(item)
+
+        answer = data.get("answer", "")
+        if answer in labels:
+            correct_index = labels.index(answer)
+        else:
+            correct_index = 0
+        correct_text = cleaned[correct_index] if cleaned else ""
+
+        order = list(range(len(cleaned)))
+        random.shuffle(order)
+        shuffled = [cleaned[i] for i in order]
+        new_index = shuffled.index(correct_text) if correct_text in shuffled else 0
+        new_answer = labels[new_index]
+        shuffled_options = [f"{labels[i]}. {shuffled[i]}" for i in range(len(shuffled))]
+
+        data["options"] = shuffled_options
+        data["answer"] = new_answer
+        return data
+
     def get_llm_provider(self, event: AstrMessageEvent):
         provider_id = str(self.config.get("llm_provider_id", "")).strip()
         umo = getattr(event, "unified_msg_origin", None)
@@ -453,12 +529,14 @@ class GaokaoPlugin(Star):
         return str(user_id) in admin_list
 
     def advance_month_progress(self, game: GaokaoGame) -> Tuple[Optional[str], bool]:
-        progress_cap = max(1, game.max_energy)
+        if game.month_progress_target not in [1, 2]:
+            game.month_progress_target = random.choice([1, 2])
         game.month_progress += 1
-        if game.month_progress < progress_cap:
+        if game.month_progress < game.month_progress_target:
             return None, False
 
         game.month_progress = 0
+        game.month_progress_target = random.choice([1, 2])
         game.history_scores_record.append(sum(game.subjects.values()))
 
         if game.current_month < len(MONTHS) - 1:
@@ -528,7 +606,7 @@ class GaokaoPlugin(Star):
         
         msg = [
             f"📊 {game.subject_type}学习状态 - {month_label}",
-            f"⏳ 月进度: {game.month_progress}/{max(1, game.max_energy)}",
+            f"⏳ 月进度: {game.month_progress}/{game.month_progress_target}",
             f"⚡ 体力: {game.energy}/{game.max_energy} | 😫 压力: {game.stress}/{stress_cap}",
             f"💫 性格: {game.personality}",
             f"\n📈 各科成绩:",
@@ -555,7 +633,7 @@ class GaokaoPlugin(Star):
 
 📌 核心规则:
 - 时间线: 9月到次年6月，共10个月
-- 月推进: 每累计行动达到当前体力上限推进一个月
+- 月推进: 每月行动需求为1-2次（随机），最快2天最慢4天
 - 体力: 每日自动恢复到上限
 - 压力: 过高会影响学习成功率
 - AI: 学习时可能触发随堂测验与动态剧情
@@ -579,7 +657,10 @@ class GaokaoPlugin(Star):
                 "/高考调试 清理CD - 恢复体力并刷新今日状态",
                 "/高考调试 满精力 - 将体力恢复到上限",
                 "/高考调试 重置负面 - 清空压力/测验状态",
-                "/高考调试 全部 - 一键重置常见负面状态"
+                "/高考调试 全部 - 一键重置常见负面状态",
+                "/高考调试 跳月 - 直接推进到下个月",
+                "/高考调试 设月份 6 - 设置当前月份(1-10)",
+                "/高考调试 加分 语文 20 - 为科目加分(不超上限)"
             ]
             yield event.plain_result("\n".join(tips))
             return
@@ -608,6 +689,38 @@ class GaokaoPlugin(Star):
             game.pending_quiz_analysis = None
             game.quiz_subject = None
             result = "✅ 已完成全量调试重置"
+        elif action == "跳月":
+            if game.current_month < len(MONTHS) - 1:
+                game.current_month += 1
+                game.month_progress = 0
+                game.month_progress_target = random.choice([1, 2])
+                result = f"✅ 已推进到 {MONTHS[game.current_month]}"
+            else:
+                result = "⚠️ 已在最后阶段，无法继续推进"
+        elif action == "设月份" and len(parts) >= 3:
+            try:
+                target_month = int(parts[2])
+                if 1 <= target_month <= len(MONTHS):
+                    game.current_month = target_month - 1
+                    game.month_progress = 0
+                    game.month_progress_target = random.choice([1, 2])
+                    result = f"✅ 当前月份已设置为 {MONTHS[game.current_month]}"
+                else:
+                    result = "❌ 月份范围应为 1-10"
+            except ValueError:
+                result = "❌ 月份参数无效"
+        elif action == "加分" and len(parts) >= 4:
+            subject = parts[2]
+            try:
+                delta = int(parts[3])
+            except ValueError:
+                delta = 0
+            if subject not in game.subjects:
+                result = "❌ 科目不存在"
+            else:
+                max_score = 150 if subject in ["语文", "数学", "英语"] else 100
+                game.subjects[subject] = clamp(game.subjects[subject] + delta, 0, max_score)
+                result = f"✅ {subject} 当前分数: {game.subjects[subject]}"
         else:
             result = "❌ 未知调试指令"
 
@@ -653,7 +766,8 @@ class GaokaoPlugin(Star):
         yield event.plain_result("\n".join(msg_lines))
 
         if finished:
-            await self.finish_game(event, game)
+            async for ret in self.finish_game(event, game):
+                yield ret
 
     @filter.command("高考学习")
     async def study(self, event: AstrMessageEvent):
@@ -748,6 +862,7 @@ class GaokaoPlugin(Star):
             f"📚 学习科目: {subject}",
             f"🎯 结果: {'成功' if is_success else '一般'} ({'+' if new_score>=old_score else ''}{new_score-old_score})",
             f"📝 事件: {event_desc}",
+            f"📌 当前分数: {new_score}/{max_score}",
             f"😫 压力 +{stress_inc} | ⚡ 体力 -1"
         ]
         
@@ -755,14 +870,17 @@ class GaokaoPlugin(Star):
         if progress_msg:
             result_msg.append(progress_msg)
         current_total = sum(game.subjects.values())
+        month_label = MONTHS[min(game.current_month, len(MONTHS) - 1)]
         result_msg.append(f"📊 当前总分: {current_total}分")
-        result_msg.append(f"⏳ 月进度: {game.month_progress}/{max(1, game.max_energy)}")
+        result_msg.append(f"⏳ 月进度: {game.month_progress}/{game.month_progress_target} | 当前时间: {month_label}")
+        result_msg.append(f"⚡ 体力: {game.energy}/{game.max_energy} | 😫 压力: {game.stress}/{stress_cap}")
 
         self.save_data()
         yield event.plain_result("\n".join(result_msg))
 
         if finished:
-            await self.finish_game(event, game)
+            async for ret in self.finish_game(event, game):
+                yield ret
             return
 
         # 触发测验 (异步)
@@ -775,7 +893,8 @@ class GaokaoPlugin(Star):
         """触发 AI 测验"""
         prompt = f"""
 请出一道高中{subject}科目的单项选择题。
-严格输出 JSON，不要包含多余文本：
+严格输出 JSON，不要包含多余文本。
+不要使用 LaTeX、公式符号或特殊字符，仅使用纯文本：
 {{
   "question": "题目内容",
   "options": ["A. xxx", "B. xxx", "C. xxx", "D. xxx"],
@@ -787,8 +906,13 @@ class GaokaoPlugin(Star):
             text = await self.llm_chat(event, prompt)
             data = self.extract_json_payload(text or "")
             data = self.normalize_quiz_data(data, subject) if data else None
+            if data:
+                all_text = " ".join([data.get("question", ""), " ".join(data.get("options", [])), data.get("analysis", "")])
+                if self.has_forbidden_quiz_chars(all_text):
+                    data = None
             if not data:
-                data = FALLBACK_QUIZ_BANK.get(subject) or FALLBACK_QUIZ_BANK["通用"]
+                data = self.get_fallback_quiz(subject)
+            data = self.randomize_quiz_options(data)
 
             game.pending_quiz_answer = data["answer"]
             game.quiz_subject = subject
