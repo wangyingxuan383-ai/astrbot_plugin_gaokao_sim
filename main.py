@@ -104,7 +104,7 @@ FALLBACK_QUIZ_BANK = {
             "question": "函数 f(x)=2x 在 x=3 处的值为：",
             "options": ["A. 3", "B. 5", "C. 6", "D. 7"],
             "answer": "C",
-            "analysis": "f(3)=2×3=6。"
+            "analysis": "f(3)=2*3=6。"
         }
     ],
     "英语": [
@@ -289,7 +289,7 @@ class GaokaoGame:
         stress_cap = 100 + personality_info.get("stress_max_bonus", 0)
         
         msg = [
-            "🎓 欢迎来到高考模拟学习 v2.1.2！",
+            "🎓 欢迎来到高考模拟学习 v2.1.3！",
             f"📚 你的学科类型: {self.subject_type}",
             f"💫 你的性格: {self.personality} ({personality_info['desc']})",
             f"❤️ 喜欢的科目: {self.favorite_subject} (+20%效果)",
@@ -369,7 +369,7 @@ class GaokaoGame:
         game.stress = clamp(game.stress, 0, stress_cap)
         return game
 
-@register("astrbot_plugin_gaokao_sim", "jinyao", "高考模拟学习插件", "2.1.2", "https://github.com/wangyingxuan383-ai/astrbot_plugin_gaokao_sim")
+@register("astrbot_plugin_gaokao_sim", "jinyao", "高考模拟学习插件", "2.1.3", "https://github.com/wangyingxuan383-ai/astrbot_plugin_gaokao_sim")
 class GaokaoPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -448,8 +448,7 @@ class GaokaoPlugin(Star):
         if answer and answer[0] in ["A", "B", "C", "D"]:
             answer = answer[0]
         if answer not in ["A", "B", "C", "D"]:
-            fallback = FALLBACK_QUIZ_BANK.get(subject) or FALLBACK_QUIZ_BANK["通用"]
-            answer = fallback["answer"]
+            return None
 
         if not question:
             return None
@@ -770,7 +769,7 @@ class GaokaoPlugin(Star):
                 yield ret
 
     @filter.command("高考学习")
-    async def study(self, event: AstrMessageEvent):
+    async def study(self, event: AstrMessageEvent, subject: Optional[str] = None):
         user_id = event.get_sender_id()
         game = self.get_user_game(user_id)
         
@@ -786,12 +785,13 @@ class GaokaoPlugin(Star):
             return
             
         # 参数解析
-        msg = event.message_str.strip()
-        parts = msg.split()
-        if len(parts) < 2:
-            yield event.plain_result(f"❌ 请指定科目！\n可用: {', '.join(game.subjects.keys())}")
-            return
-        subject = parts[1]
+        if not subject:
+            msg = event.message_str.strip()
+            parts = msg.split()
+            if len(parts) < 2:
+                yield event.plain_result(f"❌ 请指定科目！\n可用: {', '.join(game.subjects.keys())}")
+                return
+            subject = parts[1]
         
         if subject not in game.subjects:
             yield event.plain_result("❌ 科目不存在")
@@ -842,6 +842,8 @@ class GaokaoPlugin(Star):
         dynamic_event = await self.maybe_generate_dynamic_event(event, subject, is_success)
         if dynamic_event:
             event_desc = dynamic_event
+        else:
+            event_desc = random.choice(SUCCESS_EVENTS if is_success else FAIL_EVENTS)
             
         # 更新分数
         old_score = game.subjects[subject]
