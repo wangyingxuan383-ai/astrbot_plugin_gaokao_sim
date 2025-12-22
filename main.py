@@ -71,11 +71,16 @@ FAIL_EVENTS = [
 
 # 简约护眼主题色
 THEME = {
-    "bg": (238, 245, 232),
+    "bg": (236, 245, 234),
+    "bg_deep": (224, 238, 228),
+    "paper": (246, 251, 244),
     "text": (47, 47, 47),
     "primary": (45, 106, 79),
     "secondary": (168, 203, 176),
-    "border": (215, 227, 209),
+    "border": (210, 224, 210),
+    "shadow": (210, 222, 210),
+    "accent": (170, 204, 186),
+    "accent_dark": (150, 190, 170),
 }
 
 FALLBACK_QUIZ_BANK = {
@@ -289,7 +294,7 @@ class GaokaoGame:
         stress_cap = 100 + personality_info.get("stress_max_bonus", 0)
         
         msg = [
-            "🎓 欢迎来到高考模拟学习 v2.1.5！",
+            "🎓 欢迎来到高考模拟学习 v2.1.6！",
             f"📚 你的学科类型: {self.subject_type}",
             f"💫 你的性格: {self.personality} ({personality_info['desc']})",
             f"❤️ 喜欢的科目: {self.favorite_subject} (+20%效果)",
@@ -369,13 +374,14 @@ class GaokaoGame:
         game.stress = clamp(game.stress, 0, stress_cap)
         return game
 
-@register("astrbot_plugin_gaokao_sim", "jinyao", "高考模拟学习插件", "2.1.5", "https://github.com/wangyingxuan383-ai/astrbot_plugin_gaokao_sim")
+@register("astrbot_plugin_gaokao_sim", "jinyao", "高考模拟学习插件", "2.1.6", "https://github.com/wangyingxuan383-ai/astrbot_plugin_gaokao_sim")
 class GaokaoPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
         self.games: Dict[str, GaokaoGame] = {}
         self.logger = logger
+        self._font_warned = False
         # 数据持久化路径
         plugin_name = getattr(self, "name", None) or "gaokao"
         self.plugin_data_dir = Path(get_astrbot_data_path()) / "plugin_data" / plugin_name
@@ -498,6 +504,87 @@ class GaokaoPlugin(Star):
         data["options"] = shuffled_options
         data["answer"] = new_answer
         return data
+
+    def resolve_font_path(self) -> Optional[str]:
+        config_path = str(self.config.get("font_path", "")).strip()
+        asset_dir = Path(__file__).parent / "assets" / "fonts"
+        candidates = []
+        if config_path:
+            candidates.append(config_path)
+        candidates.extend([
+            str(asset_dir / "NotoSansCJK-Regular.ttc"),
+            str(asset_dir / "NotoSansCJK-Regular.otf"),
+            str(asset_dir / "SourceHanSansSC-Regular.otf"),
+            "C:\\Windows\\Fonts\\msyh.ttc",
+            "C:\\Windows\\Fonts\\msyhbd.ttc",
+            "C:\\Windows\\Fonts\\simhei.ttf",
+            "C:\\Windows\\Fonts\\simsun.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+            "/System/Library/Fonts/STHeiti Medium.ttc",
+            "/System/Library/Fonts/PingFang.ttc"
+        ])
+        for path in candidates:
+            if path and os.path.exists(path):
+                return path
+        if not self._font_warned:
+            self.logger.warning("未找到可用中文字体，请在配置中设置 font_path。")
+            self._font_warned = True
+        return None
+
+    def get_comment_advice(self, score: int, improvement: int) -> Tuple[str, str]:
+        if score >= 650:
+            base = "发挥稳定，实力突出"
+            advice = "保持节奏，适度拔高"
+        elif score >= 600:
+            base = "成绩亮眼，优势明显"
+            advice = "夯实强科，补齐短板"
+        elif score >= 550:
+            base = "稳中有升，潜力可期"
+            advice = "坚持错题复盘"
+        elif score >= 500:
+            base = "基础尚可，空间较大"
+            advice = "加强练习，稳住心态"
+        elif score >= 450:
+            base = "仍需加油，别轻言放弃"
+            advice = "优化方法，循序渐进"
+        else:
+            base = "起步不易，重整节奏"
+            advice = "先抓基础，再逐步提升"
+
+        if improvement >= 120:
+            base = f"{base}，进步明显"
+        elif improvement < -30:
+            base = f"{base}，仍有波动"
+        return base, advice
+
+    def measure_text(self, draw, text: str, font) -> Tuple[int, int]:
+        if hasattr(draw, "textbbox"):
+            bbox = draw.textbbox((0, 0), text, font=font)
+            return bbox[2] - bbox[0], bbox[3] - bbox[1]
+        return draw.textsize(text, font=font)
+
+    def wrap_text(self, draw, text: str, font, max_width: int):
+        lines = []
+        current = ""
+        for ch in text:
+            test = current + ch
+            width, _ = self.measure_text(draw, test, font)
+            if width <= max_width:
+                current = test
+            else:
+                if current:
+                    lines.append(current)
+                    current = ch
+                else:
+                    lines.append(test)
+                    current = ""
+        if current:
+            lines.append(current)
+        return lines
 
     def get_llm_provider(self, event: AstrMessageEvent):
         provider_id = str(self.config.get("llm_provider_id", "")).strip()
@@ -1014,23 +1101,6 @@ class GaokaoPlugin(Star):
             except Exception as e:
                 self.logger.error(f"图片生成失败: {e}")
                 
-        # 3. LLM 志愿建议
-        if self.config.get("enable_llm_features", True):
-            scores_str = ", ".join([f"{k}:{v}" for k, v in game.subjects.items()])
-            prompt = f"""
-            考生高考总分{total_score}，科目成绩：{scores_str}。
-            性格：{game.personality}。
-            如果不理想，请给予安慰。
-            如果成绩不错，请根据其优势科目推荐2个适合的专业方向，并给出简短的职业规划建议。
-            200字以内。
-            """
-            yield event.plain_result("🤖 正在咨询 AI 志愿填报顾问...")
-            text = await self.llm_chat(event, prompt)
-            if text:
-                yield event.plain_result(f"💡 志愿顾问建议：\n{text}")
-            else:
-                yield event.plain_result("💡 志愿顾问暂时不可用，请稍后再试。")
-
         # 重置游戏状态
         game.started = False
         game.month_progress = 0
@@ -1040,67 +1110,129 @@ class GaokaoPlugin(Star):
 
     async def generate_report_card_image(self, name: str, score: int, university: str, game: GaokaoGame) -> str:
         """生成成绩单图片"""
-        width, height = 900, 1100
-        image = Image.new("RGB", (width, height), THEME["bg"])
+        width, height = 900, 1200
+        bg_top = THEME["bg"]
+        bg_bottom = THEME["bg_deep"]
+        image = Image.new("RGB", (width, height), bg_top)
         draw = ImageDraw.Draw(image)
 
-        font_candidates = [
-            "C:\\Windows\\Fonts\\simhei.ttf",
-            "C:\\Windows\\Fonts\\msyh.ttc",
-            "C:\\Windows\\Fonts\\simsun.ttc"
-        ]
-        font_path = next((p for p in font_candidates if os.path.exists(p)), None)
+        for y in range(height):
+            ratio = y / max(height - 1, 1)
+            color = tuple(
+                int(bg_top[i] + (bg_bottom[i] - bg_top[i]) * ratio)
+                for i in range(3)
+            )
+            draw.line([(0, y), (width, y)], fill=color)
 
-        try:
-            title_font = ImageFont.truetype(font_path, 56) if font_path else ImageFont.load_default()
-            text_font = ImageFont.truetype(font_path, 32) if font_path else ImageFont.load_default()
-            score_font = ImageFont.truetype(font_path, 88) if font_path else ImageFont.load_default()
-            small_font = ImageFont.truetype(font_path, 24) if font_path else ImageFont.load_default()
-        except Exception:
-            title_font = ImageFont.load_default()
-            text_font = ImageFont.load_default()
-            score_font = ImageFont.load_default()
-            small_font = ImageFont.load_default()
+        overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        odraw = ImageDraw.Draw(overlay)
+        mist = (*THEME["secondary"], 70)
+        odraw.ellipse([80, 70, 340, 300], fill=mist)
+        odraw.ellipse([560, 60, 860, 260], fill=mist)
+        odraw.ellipse([200, 820, 580, 1120], fill=(*THEME["accent"], 60))
+        odraw.polygon([(0, 980), (220, 880), (460, 960), (720, 900), (900, 960), (900, 1200), (0, 1200)],
+                      fill=(*THEME["accent"], 80))
+        odraw.polygon([(0, 1040), (260, 980), (520, 1040), (760, 990), (900, 1040), (900, 1200), (0, 1200)],
+                      fill=(*THEME["accent_dark"], 60))
+        odraw.arc([120, 160, 380, 260], start=180, end=360, fill=(*THEME["secondary"], 90), width=2)
+        odraw.arc([420, 180, 720, 290], start=180, end=360, fill=(*THEME["secondary"], 90), width=2)
+        image = Image.alpha_composite(image.convert("RGBA"), overlay).convert("RGB")
+        draw = ImageDraw.Draw(image)
+
+        font_path = self.resolve_font_path()
+
+        def safe_font(size: int):
+            if not font_path:
+                return ImageFont.load_default()
+            try:
+                return ImageFont.truetype(font_path, size)
+            except Exception:
+                return ImageFont.load_default()
+
+        title_font = safe_font(52)
+        text_font = safe_font(28)
+        score_font = safe_font(86)
+        small_font = safe_font(22)
+        label_font = safe_font(24)
+        comment_font = safe_font(24)
 
         def draw_centered(text: str, y: int, font, fill):
-            bbox = draw.textbbox((0, 0), text, font=font)
-            text_width = bbox[2] - bbox[0]
+            text_width, _ = self.measure_text(draw, text, font)
             draw.text(((width - text_width) / 2, y), text, font=font, fill=fill)
 
-        # 边框
-        draw.rectangle([40, 40, width - 40, height - 40], outline=THEME["border"], width=3)
+        def draw_round_rect(box, radius, fill=None, outline=None, width=1):
+            if hasattr(draw, "rounded_rectangle"):
+                draw.rounded_rectangle(box, radius=radius, fill=fill, outline=outline, width=width)
+            else:
+                draw.rectangle(box, fill=fill, outline=outline, width=width)
 
-        # 标题与徽章
-        draw_centered("高考录取通知书", 90, title_font, THEME["primary"])
-        badge_box = [width - 180, 80, width - 80, 180]
-        draw.ellipse(badge_box, outline=THEME["primary"], width=4)
-        draw.text((width - 165, 115), "录取", font=small_font, fill=THEME["primary"])
+        def draw_card(box, radius=16, fill=THEME["paper"], outline=THEME["border"], shadow=True):
+            if shadow:
+                shadow_box = [box[0] + 4, box[1] + 6, box[2] + 4, box[3] + 6]
+                draw_round_rect(shadow_box, radius, fill=THEME["shadow"], outline=None, width=1)
+            draw_round_rect(box, radius, fill=fill, outline=outline, width=2)
 
-        # 信息卡片
-        card_box = [80, 220, width - 80, 480]
-        draw.rectangle(card_box, outline=THEME["border"], width=2, fill=(246, 251, 243))
-        draw.text((110, 250), f"考生姓名: {name}", font=text_font, fill=THEME["text"])
-        draw.text((110, 300), f"学科类型: {game.subject_type}", font=text_font, fill=THEME["text"])
-        draw.text((110, 350), f"性格类型: {game.personality}", font=text_font, fill=THEME["text"])
-        draw.text((110, 410), f"录取院校: {university}", font=text_font, fill=THEME["text"])
+        margin = 40
+        draw_round_rect([margin, margin, width - margin, height - margin], 28, outline=THEME["border"], fill=None, width=2)
+        draw_round_rect([margin + 12, margin + 12, width - margin - 12, height - margin - 12],
+                        24, outline=THEME["secondary"], fill=None, width=1)
 
-        # 总分
-        draw_centered("总分", 520, text_font, THEME["text"])
-        draw_centered(str(score), 570, score_font, THEME["primary"])
+        draw_centered("高考录取通知书", 80, title_font, THEME["primary"])
+        draw_centered("模拟结业证明", 140, small_font, THEME["text"])
 
-        # 各科成绩
-        start_y = 720
-        start_x = 120
-        col_gap = 260
-        row_gap = 70
+        badge_box = [width - 190, 80, width - 90, 180]
+        draw.ellipse(badge_box, outline=THEME["primary"], width=3, fill=THEME["paper"])
+        draw.text((width - 170, 112), "录取", font=small_font, fill=THEME["primary"])
+
+        info_box = [80, 190, width - 80, 370]
+        draw_card(info_box, radius=18)
+        draw.line([(info_box[0] + 18, info_box[1] + 26), (info_box[0] + 18, info_box[3] - 26)],
+                  fill=THEME["secondary"], width=4)
+        info_x = info_box[0] + 40
+        draw.text((info_x, info_box[1] + 22), f"考生姓名: {name}", font=text_font, fill=THEME["text"])
+        draw.text((info_x, info_box[1] + 70), f"学科类型: {game.subject_type}", font=text_font, fill=THEME["text"])
+        draw.text((info_x, info_box[1] + 118), f"性格类型: {game.personality}", font=text_font, fill=THEME["text"])
+        draw.text((info_x, info_box[1] + 166), f"录取院校: {university}", font=text_font, fill=THEME["text"])
+
+        score_box = [230, 395, width - 230, 555]
+        draw_card(score_box, radius=22, fill=THEME["paper"], outline=THEME["border"])
+        draw_centered("总分", score_box[1] + 18, label_font, THEME["text"])
+        draw_centered(str(score), score_box[1] + 46, score_font, THEME["primary"])
+
+        grid_left, grid_right = 90, width - 90
+        grid_top = 600
+        col_gap = 18
+        row_gap = 16
+        col_width = int((grid_right - grid_left - col_gap * 2) / 3)
+        row_height = 68
         for i, (sub, s) in enumerate(game.subjects.items()):
-            x = start_x + (i % 3) * col_gap
-            y = start_y + (i // 3) * row_gap
-            draw.text((x, y), f"{sub}: {s}", font=text_font, fill=THEME["text"])
+            col = i % 3
+            row = i // 3
+            x0 = grid_left + col * (col_width + col_gap)
+            y0 = grid_top + row * (row_height + row_gap)
+            box = [x0, y0, x0 + col_width, y0 + row_height]
+            draw_card(box, radius=12, shadow=False)
+            label = f"{sub} {s}"
+            text_w, text_h = self.measure_text(draw, label, label_font)
+            draw.text((x0 + (col_width - text_w) / 2, y0 + (row_height - text_h) / 2),
+                      label, font=label_font, fill=THEME["text"])
 
-        # 底部
+        comment_box = [80, 850, width - 80, 1030]
+        draw_card(comment_box, radius=18)
+        draw.text((comment_box[0] + 24, comment_box[1] + 16), "评语与建议", font=label_font, fill=THEME["primary"])
+        improvement = score - sum(game.initial_scores.values())
+        comment, advice = self.get_comment_advice(score, improvement)
+        comment_text = f"评语: {comment}"
+        advice_text = f"建议: {advice}"
+        max_width = comment_box[2] - comment_box[0] - 48
+        lines = self.wrap_text(draw, comment_text, comment_font, max_width)
+        lines += self.wrap_text(draw, advice_text, comment_font, max_width)
+        start_y = comment_box[1] + 58
+        for i, line in enumerate(lines[:4]):
+            draw.text((comment_box[0] + 24, start_y + i * 32), line, font=comment_font, fill=THEME["text"])
+
         issue_date = datetime.now().strftime("%Y-%m-%d")
-        draw.text((80, height - 120), f"签发日期: {issue_date}", font=small_font, fill=THEME["text"])
+        draw.text((80, height - 115), f"签发日期: {issue_date}", font=small_font, fill=THEME["text"])
         draw.text((80, height - 80), "高考模拟系统", font=small_font, fill=THEME["text"])
 
         filename = f"{game.user_id}_{int(datetime.now().timestamp())}_report.png"
@@ -1120,27 +1252,49 @@ class GaokaoPlugin(Star):
         else:
             labels = labels[:len(scores)]
 
-        plt.rcParams["font.sans-serif"] = ["SimHei"]
+        font_path = self.resolve_font_path()
+        font_prop = None
+        if font_path:
+            try:
+                from matplotlib import font_manager
+                font_manager.fontManager.addfont(font_path)
+                font_prop = font_manager.FontProperties(fname=font_path)
+            except Exception:
+                font_prop = None
+
+        plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei", "Noto Sans CJK SC", "WenQuanYi Zen Hei"]
         plt.rcParams["axes.unicode_minus"] = False
 
+        def rgb_to_hex(rgb):
+            return "#{:02X}{:02X}{:02X}".format(*rgb)
+
+        bg_color = rgb_to_hex(THEME["bg"])
+        grid_color = rgb_to_hex(THEME["border"])
+        line_color = rgb_to_hex(THEME["primary"])
+        text_color = rgb_to_hex(THEME["text"])
+
         fig, ax = plt.subplots(figsize=(8, 4.5), dpi=150)
-        fig.patch.set_facecolor("#EEF5E8")
-        ax.set_facecolor("#EEF5E8")
+        fig.patch.set_facecolor(bg_color)
+        ax.set_facecolor(bg_color)
 
-        ax.plot(labels, scores, color="#2D6A4F", linewidth=2.5, marker="o")
-        ax.grid(True, color="#D7E3D1", linewidth=0.8, linestyle="--", alpha=0.8)
+        ax.plot(labels, scores, color=line_color, linewidth=2.5, marker="o")
+        ax.grid(True, color=grid_color, linewidth=0.8, linestyle="--", alpha=0.8)
 
-        ax.set_title("成绩趋势", color="#2D6A4F", fontsize=14, pad=12)
-        ax.set_xlabel("月份", color="#2F2F2F")
-        ax.set_ylabel("总分", color="#2F2F2F")
-        ax.tick_params(axis="x", rotation=0, colors="#2F2F2F")
-        ax.tick_params(axis="y", colors="#2F2F2F")
+        ax.set_title("成绩趋势", color=line_color, fontsize=14, pad=12, fontproperties=font_prop)
+        ax.set_xlabel("月份", color=text_color, fontproperties=font_prop)
+        ax.set_ylabel("总分", color=text_color, fontproperties=font_prop)
+        ax.tick_params(axis="x", rotation=0, colors=text_color)
+        ax.tick_params(axis="y", colors=text_color)
+
+        if font_prop:
+            for label in ax.get_xticklabels() + ax.get_yticklabels():
+                label.set_fontproperties(font_prop)
 
         last_score = scores[-1]
         ax.annotate(f"{last_score}", xy=(len(scores) - 1, last_score),
                     xytext=(0, 8), textcoords="offset points",
-                    ha="center", color="#2D6A4F", fontsize=10)
-        fig.text(0.5, 0.02, f"最终录取档次: {tier_name}", ha="center", color="#2F2F2F", fontsize=10)
+                    ha="center", color=line_color, fontsize=10, fontproperties=font_prop)
+        fig.text(0.5, 0.02, f"最终录取档次: {tier_name}", ha="center", color=text_color, fontsize=10, fontproperties=font_prop)
 
         filename = f"{game.user_id}_{int(datetime.now().timestamp())}_trend.png"
         filepath = self.report_dir / filename

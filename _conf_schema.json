@@ -2,7 +2,7 @@
   "enable_llm_features": {
     "description": "是否启用LLM功能",
     "type": "bool",
-    "hint": "启用后将使用AI生成测验题目、动态剧情和志愿顾问。会消耗LLM Token。",
+    "hint": "启用后将使用AI生成测验题目与动态剧情，会消耗LLM Token。",
     "default": true
   },
   "admin_qq_list": {
@@ -47,5 +47,11 @@
     "type": "bool",
     "hint": "启用后将在高考结算时生成录取通知书图片和成绩折线图",
     "default": true
+  },
+  "font_path": {
+    "description": "自定义字体路径",
+    "type": "string",
+    "hint": "用于成绩单与折线图的中文字体路径，留空则自动寻找系统字体，例如 C:\\\\Windows\\\\Fonts\\\\msyh.ttc",
+    "default": ""
   }
 }
