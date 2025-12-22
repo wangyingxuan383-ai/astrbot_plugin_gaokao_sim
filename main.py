@@ -727,7 +727,7 @@ class GaokaoPlugin(Star):
         yield event.plain_result(menu_msg.strip())
 
     @filter.command("高考调试")
-    async def debug_tools(self, event: AstrMessageEvent):
+    async def debug_tools(self, event: AstrMessageEvent, action: str = "", *args, **kwargs):
         """管理员调试"""
         user_id = event.get_sender_id()
         if not self.is_admin(user_id):
@@ -735,8 +735,11 @@ class GaokaoPlugin(Star):
             return
 
         game = self.get_user_game(user_id)
-        msg = event.message_str.strip()
+        msg = (event.message_str or "").strip()
         parts = msg.split()
+        if len(parts) < 2 and action:
+            extra_args = [str(a) for a in args if a]
+            parts = ["高考调试", action] + extra_args
         if len(parts) < 2:
             tips = [
                 "🛠️ 调试命令列表:",
