@@ -5,6 +5,12 @@
     "hint": "启用后将使用AI生成测验题目、动态剧情和志愿顾问。会消耗LLM Token。",
     "default": true
   },
+  "admin_qq_list": {
+    "description": "管理员QQ列表",
+    "type": "list",
+    "hint": "允许使用调试命令的QQ号列表，字符串形式",
+    "default": []
+  },
   "llm_provider_id": {
     "description": "LLM 提供商 ID",
     "type": "string",

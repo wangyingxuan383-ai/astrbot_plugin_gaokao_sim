@@ -330,7 +330,7 @@ class GaokaoGame:
         game.stress = clamp(game.stress, 0, stress_cap)
         return game
 
-@register("astrbot_plugin_gaokao_sim", "jinyao", "高考模拟学习插件", "2.1.0", "https://github.com/wangyingxuan383-ai/astrbot_plugin_gaokao_sim")
+@register("astrbot_plugin_gaokao_sim", "jinyao", "高考模拟学习插件", "2.1.1", "https://github.com/wangyingxuan383-ai/astrbot_plugin_gaokao_sim")
 class GaokaoPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -443,6 +443,13 @@ class GaokaoPlugin(Star):
             self.logger.error(f"LLM 调用失败: {exc}")
             return None
 
+    def is_admin(self, user_id: str) -> bool:
+        admin_list = self.config.get("admin_qq_list", [])
+        if isinstance(admin_list, str):
+            admin_list = [admin_list]
+        admin_list = [str(item).strip() for item in admin_list if str(item).strip()]
+        return str(user_id) in admin_list
+
     def advance_month_progress(self, game: GaokaoGame) -> Tuple[Optional[str], bool]:
         progress_cap = max(1, game.max_energy)
         game.month_progress += 1
@@ -542,6 +549,7 @@ class GaokaoPlugin(Star):
 /高考状态 - 查看状态
 /高考回答 [选项] - 回答测验题
 /高考菜单 - 显示此菜单
+/高考调试 [操作] - 管理员调试
 
 📌 核心规则:
 - 时间线: 9月到次年6月，共10个月
@@ -551,6 +559,58 @@ class GaokaoPlugin(Star):
 - AI: 学习时可能触发随堂测验与动态剧情
         """
         yield event.plain_result(menu_msg.strip())
+
+    @filter.command("高考调试")
+    async def debug_tools(self, event: AstrMessageEvent):
+        """管理员调试"""
+        user_id = event.get_sender_id()
+        if not self.is_admin(user_id):
+            yield event.plain_result("❌ 只有管理员可以使用调试功能")
+            return
+
+        game = self.get_user_game(user_id)
+        msg = event.message_str.strip()
+        parts = msg.split()
+        if len(parts) < 2:
+            tips = [
+                "🛠️ 调试命令列表:",
+                "/高考调试 清理CD - 恢复体力并刷新今日状态",
+                "/高考调试 满精力 - 将体力恢复到上限",
+                "/高考调试 重置负面 - 清空压力/测验状态",
+                "/高考调试 全部 - 一键重置常见负面状态"
+            ]
+            yield event.plain_result("\n".join(tips))
+            return
+
+        action = parts[1]
+        stress_cap = 100 + PERSONALITY_TYPES.get(game.personality, {}).get("stress_max_bonus", 0)
+
+        if action == "清理CD":
+            game.last_update_date = datetime.now().date().isoformat()
+            game.energy = game.max_energy
+            result = "✅ 已清理CD并恢复体力"
+        elif action == "满精力":
+            game.energy = game.max_energy
+            result = "✅ 体力已恢复到上限"
+        elif action == "重置负面":
+            game.stress = clamp(0, 0, stress_cap)
+            game.pending_quiz_answer = None
+            game.pending_quiz_analysis = None
+            game.quiz_subject = None
+            result = "✅ 压力与测验状态已清空"
+        elif action == "全部":
+            game.last_update_date = datetime.now().date().isoformat()
+            game.energy = game.max_energy
+            game.stress = clamp(0, 0, stress_cap)
+            game.pending_quiz_answer = None
+            game.pending_quiz_analysis = None
+            game.quiz_subject = None
+            result = "✅ 已完成全量调试重置"
+        else:
+            result = "❌ 未知调试指令"
+
+        self.save_data()
+        yield event.plain_result(result)
 
     @filter.command("高考休息")
     async def rest(self, event: AstrMessageEvent):
