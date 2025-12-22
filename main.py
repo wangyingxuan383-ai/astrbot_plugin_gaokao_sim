@@ -13,6 +13,8 @@ from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 # 尝试导入绘图库
 try:
     from PIL import Image, ImageDraw, ImageFont
+    import matplotlib
+    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     HAS_VISUAL = True
 except ImportError:
