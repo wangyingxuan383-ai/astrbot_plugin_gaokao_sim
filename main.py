@@ -345,6 +345,12 @@ class GaokaoGame:
 
     @classmethod
     def from_dict(cls, user_id: str, data: Dict) -> 'GaokaoGame':
+        def safe_int(value, default=0):
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return default
+
         stored_user_id = data.get('user_id')
         game = cls(str(stored_user_id) if stored_user_id else user_id)
         game.started = data.get('started', False)
@@ -352,7 +358,7 @@ class GaokaoGame:
         game.subject_type = data.get('subject_type', '')
         raw_subjects = data.get('subjects', {})
         if isinstance(raw_subjects, dict):
-            game.subjects = {k: int(v) for k, v in raw_subjects.items()}
+            game.subjects = {k: safe_int(v) for k, v in raw_subjects.items()}
         else:
             game.subjects = {}
         game.teachers = data.get('teachers', {})
@@ -360,7 +366,9 @@ class GaokaoGame:
         game.dislike_subject = data.get('dislike_subject', '')
         raw_initial_scores = data.get('initial_scores', {})
         if isinstance(raw_initial_scores, dict):
-            game.initial_scores = {k: int(v) for k, v in raw_initial_scores.items()}
+            game.initial_scores = {
+                k: safe_int(v, game.subjects.get(k, 0)) for k, v in raw_initial_scores.items()
+            }
         else:
             game.initial_scores = {}
         if game.subjects and not game.initial_scores:
@@ -369,23 +377,25 @@ class GaokaoGame:
             for subject, score in game.subjects.items():
                 game.initial_scores.setdefault(subject, score)
         game.personality = data.get('personality', '普通型')
-        game.history_high_score = int(data.get('history_high_score', 0))
+        game.history_high_score = safe_int(data.get('history_high_score', 0))
         game.final_scores = data.get('final_scores', {})
         game.is_debug_mode = data.get('is_debug_mode', False)
         game.group_id = data.get('group_id', '')
-        game.stress = int(data.get('stress', 0))
-        game.energy = int(data.get('energy', 5))
-        game.max_energy = max(1, int(data.get('max_energy', 5)))
+        game.stress = safe_int(data.get('stress', 0))
+        game.energy = safe_int(data.get('energy', 5))
+        game.max_energy = max(1, safe_int(data.get('max_energy', 5)))
         game.last_update_date = data.get('last_update_date', datetime.now().date().isoformat())
-        game.month_progress = data.get('month_progress', 0)
-        game.month_progress_target = int(data.get('month_progress_target', 1))
+        game.month_progress = safe_int(data.get('month_progress', 0))
+        game.month_progress_target = safe_int(data.get('month_progress_target', 1))
         if game.month_progress_target not in [1, 2]:
             game.month_progress_target = 1
         raw_history = data.get('history_scores_record', [])
         if isinstance(raw_history, list):
-            game.history_scores_record = [
-                int(item) for item in raw_history if isinstance(item, (int, float))
-            ]
+            game.history_scores_record = []
+            for item in raw_history:
+                value = safe_int(item, None)
+                if value is not None:
+                    game.history_scores_record.append(value)
         else:
             game.history_scores_record = []
         pending_answer = data.get('pending_quiz_answer')
@@ -516,7 +526,7 @@ class GaokaoPlugin(Star):
     def extract_quiz_answer(self, text: str) -> Optional[str]:
         if not text:
             return None
-        match = re.search(r"[ABCD]", text.upper())
+        match = re.search(r"(?<![A-Z])[ABCD](?![A-Z])", text.upper())
         if match:
             return match.group(0)
         return None
@@ -1203,6 +1213,8 @@ class GaokaoPlugin(Star):
                     self.cleanup_reports()
             except Exception as e:
                 self.logger.error(f"图片生成失败: {e}")
+        else:
+            self.cleanup_reports()
                 
         # 重置游戏状态
         game.started = False
