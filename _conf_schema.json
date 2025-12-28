@@ -48,6 +48,12 @@
     "hint": "启用后将在高考结算时生成录取通知书图片和成绩折线图",
     "default": true
   },
+  "report_retention": {
+    "description": "报告图片保留数量",
+    "type": "int",
+    "hint": "reports 目录最多保留的图片数量，超出将自动清理，设为 0 关闭清理",
+    "default": 60
+  },
   "font_path": {
     "description": "自定义字体路径",
     "type": "string",

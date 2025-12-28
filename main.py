@@ -1,6 +1,9 @@
+import asyncio
+import copy
 import json
 import os
 import random
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, Tuple
@@ -313,6 +316,7 @@ class GaokaoGame:
 
     def to_dict(self) -> Dict:
         return {
+            'user_id': self.user_id,
             'started': self.started,
             'current_month': self.current_month,
             'subject_type': self.subject_type,
@@ -341,37 +345,58 @@ class GaokaoGame:
 
     @classmethod
     def from_dict(cls, user_id: str, data: Dict) -> 'GaokaoGame':
-        game = cls(user_id)
+        stored_user_id = data.get('user_id')
+        game = cls(str(stored_user_id) if stored_user_id else user_id)
         game.started = data.get('started', False)
         game.current_month = data.get('current_month', 0)
         game.subject_type = data.get('subject_type', '')
-        game.subjects = data.get('subjects', {})
+        raw_subjects = data.get('subjects', {})
+        if isinstance(raw_subjects, dict):
+            game.subjects = {k: int(v) for k, v in raw_subjects.items()}
+        else:
+            game.subjects = {}
         game.teachers = data.get('teachers', {})
         game.favorite_subject = data.get('favorite_subject', '')
         game.dislike_subject = data.get('dislike_subject', '')
-        game.initial_scores = data.get('initial_scores', {})
+        raw_initial_scores = data.get('initial_scores', {})
+        if isinstance(raw_initial_scores, dict):
+            game.initial_scores = {k: int(v) for k, v in raw_initial_scores.items()}
+        else:
+            game.initial_scores = {}
+        if game.subjects and not game.initial_scores:
+            game.initial_scores = game.subjects.copy()
+        else:
+            for subject, score in game.subjects.items():
+                game.initial_scores.setdefault(subject, score)
         game.personality = data.get('personality', '普通型')
-        game.history_high_score = data.get('history_high_score', 0)
+        game.history_high_score = int(data.get('history_high_score', 0))
         game.final_scores = data.get('final_scores', {})
         game.is_debug_mode = data.get('is_debug_mode', False)
         game.group_id = data.get('group_id', '')
-        game.stress = data.get('stress', 0)
-        game.energy = data.get('energy', 5)
+        game.stress = int(data.get('stress', 0))
+        game.energy = int(data.get('energy', 5))
         game.max_energy = max(1, int(data.get('max_energy', 5)))
         game.last_update_date = data.get('last_update_date', datetime.now().date().isoformat())
         game.month_progress = data.get('month_progress', 0)
         game.month_progress_target = int(data.get('month_progress_target', 1))
         if game.month_progress_target not in [1, 2]:
             game.month_progress_target = 1
-        game.history_scores_record = data.get('history_scores_record', [])
-        game.pending_quiz_answer = data.get('pending_quiz_answer')
+        raw_history = data.get('history_scores_record', [])
+        if isinstance(raw_history, list):
+            game.history_scores_record = [
+                int(item) for item in raw_history if isinstance(item, (int, float))
+            ]
+        else:
+            game.history_scores_record = []
+        pending_answer = data.get('pending_quiz_answer')
+        game.pending_quiz_answer = pending_answer.upper() if isinstance(pending_answer, str) else None
         game.quiz_subject = data.get('quiz_subject')
         game.pending_quiz_analysis = data.get('pending_quiz_analysis')
         game.improvement_multiplier = float(data.get('improvement_multiplier', 1.0))
         if game.energy > game.max_energy:
             game.energy = game.max_energy
         stress_cap = 100 + PERSONALITY_TYPES.get(game.personality, {}).get("stress_max_bonus", 0)
-        game.stress = clamp(game.stress, 0, stress_cap)
+        game.stress = int(clamp(game.stress, 0, stress_cap))
         return game
 
 @register("astrbot_plugin_gaokao_sim", "jinyao", "高考模拟学习插件", "2.1.6", "https://github.com/wangyingxuan383-ai/astrbot_plugin_gaokao_sim")
@@ -382,6 +407,7 @@ class GaokaoPlugin(Star):
         self.games: Dict[str, GaokaoGame] = {}
         self.logger = logger
         self._font_warned = False
+        self._report_lock = None
         # 数据持久化路径
         plugin_name = getattr(self, "name", None) or "gaokao"
         self.plugin_data_dir = Path(get_astrbot_data_path()) / "plugin_data" / plugin_name
@@ -414,10 +440,22 @@ class GaokaoPlugin(Star):
         except Exception as e:
             self.logger.error(f"加载高考数据失败: {e}")
 
-    def get_user_game(self, user_id: str) -> GaokaoGame:
-        if user_id not in self.games:
-            self.games[user_id] = GaokaoGame(user_id)
-        return self.games[user_id]
+    def get_game_key(self, event: AstrMessageEvent) -> str:
+        user_id = str(event.get_sender_id())
+        umo = getattr(event, "unified_msg_origin", None)
+        if umo:
+            return f"{umo}:{user_id}"
+        return user_id
+
+    def get_user_game(self, event: AstrMessageEvent) -> GaokaoGame:
+        key = self.get_game_key(event)
+        if key not in self.games:
+            legacy_key = str(event.get_sender_id())
+            if legacy_key in self.games:
+                self.games[key] = self.games.pop(legacy_key)
+            else:
+                self.games[key] = GaokaoGame(legacy_key)
+        return self.games[key]
 
     def extract_json_payload(self, text: str) -> Optional[Dict]:
         if not text:
@@ -468,12 +506,20 @@ class GaokaoPlugin(Star):
 
     def get_fallback_quiz(self, subject: str) -> Dict:
         bank = FALLBACK_QUIZ_BANK.get(subject) or FALLBACK_QUIZ_BANK["通用"]
-        return random.choice(bank)
+        return copy.deepcopy(random.choice(bank))
 
     def has_forbidden_quiz_chars(self, text: str) -> bool:
         if not text:
             return False
         return any(ch in text for ch in FORBIDDEN_QUIZ_CHARS)
+
+    def extract_quiz_answer(self, text: str) -> Optional[str]:
+        if not text:
+            return None
+        match = re.search(r"[ABCD]", text.upper())
+        if match:
+            return match.group(0)
+        return None
 
     def randomize_quiz_options(self, data: Dict) -> Dict:
         labels = ["A", "B", "C", "D"]
@@ -534,6 +580,35 @@ class GaokaoPlugin(Star):
             self.logger.warning("未找到可用中文字体，请在配置中设置 font_path。")
             self._font_warned = True
         return None
+
+    def cleanup_reports(self):
+        retention = self.config.get("report_retention", 60)
+        try:
+            retention = int(retention)
+        except (TypeError, ValueError):
+            retention = 60
+        if retention <= 0:
+            return
+        if not self.report_dir.exists():
+            return
+        try:
+            files = [p for p in self.report_dir.glob("*.png") if p.is_file()]
+            if len(files) <= retention:
+                return
+            files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            for path in files[retention:]:
+                try:
+                    path.unlink()
+                except Exception as exc:
+                    self.logger.warning(f"清理报告图片失败: {path} ({exc})")
+        except Exception as exc:
+            self.logger.warning(f"清理报告目录失败: {exc}")
+
+    async def run_in_thread(self, func, *args):
+        if hasattr(asyncio, "to_thread"):
+            return await asyncio.to_thread(func, *args)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, func, *args)
 
     def get_comment_advice(self, score: int, improvement: int) -> Tuple[str, str]:
         if score >= 650:
@@ -659,8 +734,7 @@ class GaokaoPlugin(Star):
     
     @filter.command("高考学习开始")
     async def start_game(self, event: AstrMessageEvent):
-        user_id = event.get_sender_id()
-        game = self.get_user_game(user_id)
+        game = self.get_user_game(event)
         
         if game.started:
             month_label = MONTHS[min(game.current_month, len(MONTHS) - 1)]
@@ -673,8 +747,7 @@ class GaokaoPlugin(Star):
 
     @filter.command("高考状态")
     async def check_status(self, event: AstrMessageEvent):
-        user_id = event.get_sender_id()
-        game = self.get_user_game(user_id)
+        game = self.get_user_game(event)
         
         if not game.started:
             yield event.plain_result("❌ 游戏尚未开始！使用 '/高考学习开始' 开始游戏")
@@ -696,8 +769,11 @@ class GaokaoPlugin(Star):
             f"⚡ 体力: {game.energy}/{game.max_energy} | 😫 压力: {game.stress}/{stress_cap}",
             f"💫 性格: {game.personality}",
             f"\n📈 各科成绩:",
-            *[f"  {sub}: {score}分 ({'+' if score>=game.initial_scores[sub] else ''}{score-game.initial_scores[sub]})" 
-              for sub, score in game.subjects.items()],
+            *[
+                f"  {sub}: {score}分 ({'+' if score>=game.initial_scores.get(sub, score) else ''}"
+                f"{score-game.initial_scores.get(sub, score)})"
+                for sub, score in game.subjects.items()
+            ],
             f"\n📋 总分: {total_score}分 (总提升 {improvement})"
         ]
         yield event.plain_result("\n".join(msg))
@@ -734,7 +810,7 @@ class GaokaoPlugin(Star):
             yield event.plain_result("❌ 只有管理员可以使用调试功能")
             return
 
-        game = self.get_user_game(user_id)
+        game = self.get_user_game(event)
         msg = (event.message_str or "").strip()
         parts = msg.split()
         if len(parts) < 2 and action:
@@ -811,7 +887,7 @@ class GaokaoPlugin(Star):
                 result = "❌ 科目不存在"
             else:
                 max_score = 150 if subject in ["语文", "数学", "英语"] else 100
-                game.subjects[subject] = clamp(game.subjects[subject] + delta, 0, max_score)
+                game.subjects[subject] = int(clamp(game.subjects[subject] + delta, 0, max_score))
                 result = f"✅ {subject} 当前分数: {game.subjects[subject]}"
         else:
             result = "❌ 未知调试指令"
@@ -821,8 +897,7 @@ class GaokaoPlugin(Star):
 
     @filter.command("高考休息")
     async def rest(self, event: AstrMessageEvent):
-        user_id = event.get_sender_id()
-        game = self.get_user_game(user_id)
+        game = self.get_user_game(event)
         
         if not game.started:
             yield event.plain_result("❌ 请先开始游戏")
@@ -863,8 +938,7 @@ class GaokaoPlugin(Star):
 
     @filter.command("高考学习")
     async def study(self, event: AstrMessageEvent, subject: str = ""):
-        user_id = event.get_sender_id()
-        game = self.get_user_game(user_id)
+        game = self.get_user_game(event)
         
         if not game.started:
             yield event.plain_result("❌ 请先开始游戏")
@@ -1028,19 +1102,27 @@ class GaokaoPlugin(Star):
             
     @filter.command("高考回答")
     async def answer_quiz(self, event: AstrMessageEvent):
-        user_id = event.get_sender_id()
-        game = self.get_user_game(user_id)
+        game = self.get_user_game(event)
         
         if not game.pending_quiz_answer:
             yield event.plain_result("❓ 当前没有需要回答的问题")
             return
             
-        msg = event.message_str.strip().split()
-        if len(msg) < 2:
-            yield event.plain_result("❌ 请输入答案，例如：/高考回答 A")
+        raw = (event.message_str or "").strip()
+        answer_text = raw
+        for prefix in ("/高考回答", "高考回答"):
+            if answer_text.startswith(prefix):
+                answer_text = answer_text[len(prefix):].strip()
+                break
+        user_ans = self.extract_quiz_answer(answer_text)
+        if not user_ans:
+            parts = raw.split(maxsplit=1)
+            if len(parts) > 1:
+                user_ans = self.extract_quiz_answer(parts[1])
+        if not user_ans:
+            yield event.plain_result("❌ 请输入 A/B/C/D，例如：/高考回答 A")
             return
-            
-        user_ans = msg[1].upper()
+
         correct_ans = game.pending_quiz_answer
         subject = game.quiz_subject or ""
         max_score = 150 if subject in ["语文", "数学", "英语"] else 100
@@ -1050,7 +1132,7 @@ class GaokaoPlugin(Star):
         if user_ans == correct_ans:
             bonus = 5
             if subject in game.subjects:
-                game.subjects[subject] = clamp(game.subjects[subject] + bonus, 0, max_score)
+                game.subjects[subject] = int(clamp(game.subjects[subject] + bonus, 0, max_score))
             msg_lines = [f"✅ 回答正确！{subject}成绩 +{bonus} 分！"]
         else:
             game.stress = clamp(game.stress + 5, 0, stress_cap)
@@ -1097,13 +1179,28 @@ class GaokaoPlugin(Star):
         # 2. 生成图片
         if HAS_VISUAL and self.config.get("enable_image_generation", True):
             try:
-                img_path = await self.generate_report_card_image(event.get_sender_name(), total_score, tier_info['name'], game)
-                if img_path:
-                    yield event.image_result(img_path)
+                if self._report_lock is None:
+                    self._report_lock = asyncio.Lock()
+                async with self._report_lock:
+                    img_path = await self.run_in_thread(
+                        self.generate_report_card_image,
+                        event.get_sender_name(),
+                        total_score,
+                        tier_info['name'],
+                        game,
+                    )
+                    if img_path:
+                        yield event.image_result(img_path)
 
-                chart_path = await self.generate_score_trend_chart(game, tier_info['name'])
-                if chart_path:
-                    yield event.image_result(chart_path)
+                    chart_path = await self.run_in_thread(
+                        self.generate_score_trend_chart,
+                        game,
+                        tier_info['name'],
+                    )
+                    if chart_path:
+                        yield event.image_result(chart_path)
+
+                    self.cleanup_reports()
             except Exception as e:
                 self.logger.error(f"图片生成失败: {e}")
                 
@@ -1114,7 +1211,7 @@ class GaokaoPlugin(Star):
         game.pending_quiz_analysis = None
         self.save_data()
 
-    async def generate_report_card_image(self, name: str, score: int, university: str, game: GaokaoGame) -> str:
+    def generate_report_card_image(self, name: str, score: int, university: str, game: GaokaoGame) -> str:
         """生成成绩单图片"""
         width, height = 900, 1200
         bg_top = THEME["bg"]
@@ -1246,7 +1343,7 @@ class GaokaoPlugin(Star):
         image.save(filepath)
         return str(filepath)
 
-    async def generate_score_trend_chart(self, game: GaokaoGame, tier_name: str) -> Optional[str]:
+    def generate_score_trend_chart(self, game: GaokaoGame, tier_name: str) -> Optional[str]:
         """生成成绩趋势折线图"""
         if not game.history_scores_record:
             return None
